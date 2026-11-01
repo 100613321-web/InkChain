@@ -21,8 +21,9 @@ def test_different_salt_gives_different_hash():
 
 def test_verify_correct_password():
     salt = kdf.generate_salt()
-    h = kdf.hash_password("правильний-пароль", salt)   # unicode works
-    assert kdf.verify_password("правильний-пароль", salt, h) is True
+    pw = "p\u00e4ssw\u00f6rd-\u0431\u0443\u043a\u0432\u0430"   # non-ASCII on purpose
+    h = kdf.hash_password(pw, salt)
+    assert kdf.verify_password(pw, salt, h) is True
 
 
 # --- negative tests ---
