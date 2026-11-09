@@ -1,6 +1,3 @@
-##will need to be test in isolation probably to avoid messing up user data, keep for now
-
-import json
 import pytest
 import storage.files as storage
 
