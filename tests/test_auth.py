@@ -13,7 +13,12 @@ def test_register_user(isolated_storage):
     assert "alice" in users
     assert users["alice"]["password_salt"]
     assert users["alice"]["password_hash"]
+    assert users["alice"]["enc_salt"]
+    assert users["alice"]["encrypted_dek"]
+    assert users["alice"]["encrypted_private_key"]
+    assert users["alice"]["public_key"]
     assert users["alice"]["failed_attempts"] == 0
+    assert users["alice"]["locked"] is False
 
 def test_password_is_not_stored(isolated_storage):
     register_user("alice", "password123")
@@ -28,8 +33,11 @@ def test_duplicate_username(isolated_storage):
 
 def test_successful_login(isolated_storage):
     register_user("alice", "password123")
-    username = login_user("alice", "password123")
-    assert username == "alice"
+    session = login_user("alice", "password123")
+    assert session.username == "alice"
+    assert len(session.dek) == 32
+    assert session.signing_private_key is not None
+    assert session.signing_public_key is not None
 
 def test_wrong_password(isolated_storage):
     register_user("alice", "password123")
@@ -56,3 +64,32 @@ def test_locked_account_cant_login(isolated_storage):
 
     with pytest.raises(AuthError):
         login_user("alice", "password123")
+
+def test_encryption_key_unlocked_correctly(isolated_storage):
+    register_user("alice", "password123")
+
+    session1 = login_user("alice", "password123")
+    session2 = login_user("alice", "password123")
+
+    assert session1.dek == session2.dek
+
+def test_private_and_public_keys_match(isolated_storage):
+    from crypto.signing import sign, verify
+
+    register_user("alice", "password123")
+
+    session = login_user("alice", "password123")
+
+    message = b"test message"
+
+    signature = sign(session.signing_private_key, message)
+    assert verify(session.signing_public_key, signature, message)
+
+def test_different_users_have_different_keys(isolated_storage):
+    register_user("alice", "password123")
+    register_user("bob", "password456")
+
+    alice = login_user("alice", "password123")
+    bob = login_user("bob", "password456")
+
+    assert alice.dek != bob.dek
