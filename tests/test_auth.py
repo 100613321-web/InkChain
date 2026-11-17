@@ -18,7 +18,7 @@ def test_register_user(isolated_storage):
     assert users["alice"]["encrypted_private_key"]
     assert users["alice"]["public_key"]
     assert users["alice"]["failed_attempts"] == 0
-    assert users["alice"]["locked"] is False
+    assert users["alice"]["locked_until"] is None
 
 def test_password_is_not_stored(isolated_storage):
     register_user("alice", "password123")
@@ -45,24 +45,32 @@ def test_wrong_password(isolated_storage):
     with pytest.raises(AuthError):
         login_user("alice", "wrongpassword")
 
-def test_account_locks_after_failed_attempts(isolated_storage):
+def test_account_locks_after_failed_attempts(isolated_storage, monkeypatch):
+    import services.auth as auth
     register_user("alice", "password123")
 
-    for _ in range(5): #might change if we change the amount of failed attempts
-        with pytest.raises(AuthError):
-            login_user("alice", "wrongpassword")
-
-    users = storage.load_users()
-    assert users["alice"]["locked"] is True
-
-def test_locked_account_cant_login(isolated_storage):
-    register_user("alice", "password123")
+    fake_time = 1000
+    monkeypatch.setattr(auth.time, "time", lambda: fake_time)
 
     for _ in range(5):
         with pytest.raises(AuthError):
             login_user("alice", "wrongpassword")
 
-    with pytest.raises(AuthError):
+    users = storage.load_users()
+    assert users["alice"]["failed_attempts"] == auth.MAX_FAILED_ATTEMPTS
+    assert users["alice"]["locked_until"] == fake_time + auth.LOCKOUT_SECONDS
+
+def test_locked_account_cant_login(isolated_storage, monkeypatch):
+    import services.auth as auth
+    register_user("alice", "password123")
+    fake_time = 1000
+    monkeypatch.setattr(auth.time, "time", lambda: fake_time)
+
+    for _ in range(auth.MAX_FAILED_ATTEMPTS):
+        with pytest.raises(AuthError):
+            login_user("alice", "wrongpassword")
+
+    with pytest.raises(AuthError, match="temporarily locked"):
         login_user("alice", "password123")
 
 def test_encryption_key_unlocked_correctly(isolated_storage):
@@ -93,3 +101,19 @@ def test_different_users_have_different_keys(isolated_storage):
     bob = login_user("bob", "password456")
 
     assert alice.dek != bob.dek
+
+def test_account_unlocks_after_locked_period(isolated_storage, monkeypatch):
+    import services.auth as auth
+
+    register_user("alice", "password123")
+
+    fake_time = [1000]
+    monkeypatch.setattr(auth.time, "time", lambda: fake_time[0])
+
+    for _ in range(auth.MAX_FAILED_ATTEMPTS):
+        with pytest.raises(AuthError):
+            login_user("alice", "wrongpassword")
+
+    fake_time[0] += auth.LOCKOUT_SECONDS + 1
+    session = login_user("alice", "password123")
+    assert session.username == "alice"

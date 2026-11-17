@@ -51,7 +51,7 @@ def create_entry(session, plaintext: str) -> None:
 
     entries = load_decoded_entries(session)
 
-    verification = chain.verify_chain(entries, session.signing_public_key, signing.verify)
+    verification = verify_diary(session)
 
     if any(not ok for _, ok, _ in verification):
         raise DiaryError ("Diary integrity check failed. Can't add entry.")
@@ -89,7 +89,7 @@ def create_entry(session, plaintext: str) -> None:
 def get_entries(session) -> list:
     entries = load_decoded_entries(session)
 
-    verification = chain.verify_chain(entries, session.signing_public_key, signing.verify)
+    verification = verify_diary(session)
 
     if any(not ok for _, ok, _ in verification):
         raise DiaryError("Diary integrity check failed.")
@@ -114,6 +114,18 @@ def get_entries(session) -> list:
 def verify_diary(session) -> list:
     entries = load_decoded_entries(session)
     results = chain.verify_chain(entries, session.signing_public_key, signing.verify)
+
+    for index, entry in enumerate(entries):
+        if not results[index][1]:
+            continue
+
+        aad = chain.make_aad(entry["index"], entry["prev_hash"])
+
+        try:
+            aead.decrypt(session.dek, entry["blob"], aad=aad)
+
+        except aead.DecryptionError:
+            results[index] = (index, False, "AES-GCM Authentication failed.")
 
     return results
 

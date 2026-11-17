@@ -1,13 +1,15 @@
 import base64
 import binascii
 import os
+import time
 
 from dataclasses import dataclass
 from storage.files import load_users, save_users
 from crypto.kdf import generate_salt, hash_password, verify_password, derive_key
 from crypto import aead, signing
 
-MAX_FAILED_ATTEMPTS = 5 #is that too much? maybe 3 is better?
+MAX_FAILED_ATTEMPTS = 5
+LOCKOUT_SECONDS = 300
 DEK_LEN = 32
 DEK_AAD = b"inkchain-diary-key-v1" #additional authenticated data for encrypting the diary encrpytion key
 
@@ -65,7 +67,7 @@ def register_user(username: str, password: str) -> None:
         "encrypted_private_key": base64.b64encode(encrypted_private_key).decode("ascii"),
         "public_key": base64.b64encode(public_key_bytes).decode("ascii"),
         "failed_attempts": 0,
-        "locked": False #currently locking user after 5 failed attempts, keep?
+        "locked_until": None
     }
     save_users(users)
 
@@ -84,8 +86,17 @@ def login_user(username: str, password: str) -> AuthenticatedSession:
 
     user = users[username]
 
-    if user.get("locked", False):
-        raise AuthError("This account has been locked.")
+    locked_until = user.get("locked_until")
+
+    if locked_until is not None:
+        remaining_time = locked_until - time.time()
+
+        if remaining_time > 0:
+            remaining_seconds = int(remaining_time) + 1
+            raise AuthError (f"Account temporarily locked. Try again in {remaining_seconds} seconds.")
+
+        user["failed_attempts"] = 0
+        user["locked_until"] = None
 
     try:
         password_salt = bytes.fromhex(user["password_salt"])
@@ -100,7 +111,10 @@ def login_user(username: str, password: str) -> AuthenticatedSession:
         user["failed_attempts"] = user.get("failed_attempts", 0) + 1
 
         if user["failed_attempts"] >= MAX_FAILED_ATTEMPTS:
-            user["locked"] = True
+            user["locked_until"] = time.time() + LOCKOUT_SECONDS
+            
+            save_users(users)
+            raise AuthError("Too many failed login attempts. You account if locked for 5 minutes.")
 
         save_users(users)
 
@@ -139,5 +153,6 @@ def login_user(username: str, password: str) -> AuthenticatedSession:
     
 
     user["failed_attempts"] = 0
+    user["locked_until"] = None
     save_users(users)
     return AuthenticatedSession(username=username, dek=dek, signing_private_key=private_key, signing_public_key=public_key)
