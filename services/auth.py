@@ -26,7 +26,7 @@ class AuthenticatedSession:
 
 def register_user(username: str, password: str) -> None:
     if not isinstance(username, str):
-        raise AuthError("Username must be text.^")
+        raise AuthError("Username must be text.")
     
     username = username.strip().lower()
 
@@ -114,7 +114,7 @@ def login_user(username: str, password: str) -> AuthenticatedSession:
             user["locked_until"] = time.time() + LOCKOUT_SECONDS
             
             save_users(users)
-            raise AuthError("Too many failed login attempts. You account if locked for 5 minutes.")
+            raise AuthError("Too many failed login attempts. Your account is locked for 5 minutes.")
 
         save_users(users)
 
