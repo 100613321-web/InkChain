@@ -1,12 +1,11 @@
 """Authenticated encryption with AES-256-GCM.
 
-GCM is an AEAD mode (authenticated encryption with associated data):
-one operation gives us
-  - confidentiality: nobody can read the data without the key
-  - integrity + authenticity: any change to the data (or to the AAD)
-    makes decryption fail, because the 16-byte tag no longer matches.
+GCM is an AEAD mode, so one call gives us two things:
+  - confidentiality: no key, no reading
+  - integrity: if the ciphertext, the tag or the AAD change by even one
+    bit, decryption fails.
 
-Stored format of one encrypted blob:
+Layout of one encrypted blob:
     | nonce (12 bytes) | ciphertext (same length as plaintext) | tag (16 bytes) |
 """
 import os
@@ -14,32 +13,30 @@ import os
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-KEY_LEN = 32      # 256-bit key -> "AES-256"
-NONCE_LEN = 12    # 96-bit nonce: the size GCM is designed for
-TAG_LEN = 16      # GCM appends a 128-bit authentication tag
+KEY_LEN = 32     # 256-bit key -> AES-256
+NONCE_LEN = 12   # 96 bits, the size GCM is built for
+TAG_LEN = 16     # 128-bit authentication tag
 
 
 class DecryptionError(Exception):
-    """Raised when authentication fails or the data is malformed.
+    """Any problem with the data: wrong key, tampering, wrong AAD, too short.
 
-    One single error type for every data problem (wrong key, modified
-    data, wrong AAD, too short), so upper layers only catch this one
-    and the message leaks nothing useful to an attacker.
+    Only one error type on purpose, so callers catch one thing and the
+    message doesn't tell an attacker what exactly went wrong.
     """
 
 
 def generate_nonce() -> bytes:
-    """Fresh random nonce, taken from the OS secure random generator.
+    """New random nonce from the OS.
 
-    Must be new for EVERY encryption: reusing a nonce with the same key
-    breaks GCM (the XOR of two plaintexts leaks and tags can be forged).
+    It has to be new for EVERY encryption. Reusing a nonce with the same key
+    leaks the XOR of the plaintexts and lets an attacker forge tags.
     """
     return os.urandom(NONCE_LEN)
 
 
 def _check_key(key: bytes) -> None:
-    # Wrong key type/length is a programmer error -> ValueError,
-    # not an attack -> not DecryptionError.
+    # A wrong key size is a programming mistake, not an attack -> ValueError.
     if not isinstance(key, bytes) or len(key) != KEY_LEN:
         raise ValueError(f"key must be {KEY_LEN} bytes")
 
@@ -47,40 +44,37 @@ def _check_key(key: bytes) -> None:
 def encrypt(key: bytes, plaintext: bytes, aad: bytes = b"") -> bytes:
     """Encrypt and authenticate. Returns nonce || ciphertext || tag.
 
-    aad = associated data: NOT encrypted, but covered by the tag.
-    At decryption the same aad must be given, otherwise it fails.
-    We use it to bind an entry to its position (index || prev_hash).
+    aad is associated data: it stays readable but the tag covers it, so
+    decryption needs the exact same value. We use it to tie an entry to its
+    position (index || prev_hash).
     """
     _check_key(key)
     if not isinstance(plaintext, bytes):
         raise ValueError("plaintext must be bytes")
 
-    # The nonce is generated HERE so callers cannot reuse one by mistake.
+    # The nonce is made in here so a caller can never pass in a reused one.
     nonce = generate_nonce()
 
-    # The library appends the 16-byte tag to the ciphertext for us.
+    # The library puts the 16-byte tag at the end of the ciphertext for us.
     ct_and_tag = AESGCM(key).encrypt(nonce, plaintext, aad)
 
-    # The nonce is not secret, but it is needed to decrypt: store it in front.
+    # The nonce isn't secret, we just need it later, so it goes in front.
     return nonce + ct_and_tag
 
 
 def decrypt(key: bytes, blob: bytes, aad: bytes = b"") -> bytes:
-    """Verify the tag and decrypt. Raises DecryptionError on any failure."""
+    """Check the tag, then decrypt. Raises DecryptionError if anything is off."""
     _check_key(key)
 
-    # Smallest valid blob = nonce + tag (encryption of an empty text).
+    # Shortest valid blob is nonce + tag (an empty message).
     if not isinstance(blob, bytes) or len(blob) < NONCE_LEN + TAG_LEN:
         raise DecryptionError("data too short")
 
-    # Split the blob back into its parts.
     nonce, ct_and_tag = blob[:NONCE_LEN], blob[NONCE_LEN:]
 
     try:
-        # The library checks the tag FIRST; plaintext is returned only
-        # if the tag is valid. Nothing is ever released on failure.
+        # The tag is checked first, plaintext only comes out if it matches.
         return AESGCM(key).decrypt(nonce, ct_and_tag, aad)
     except InvalidTag:
-        # Deliberately vague: do not reveal whether the key, the data
-        # or the AAD was wrong. "from None" hides the internal traceback.
+        # Vague on purpose. "from None" drops the internal traceback.
         raise DecryptionError("authentication failed") from None

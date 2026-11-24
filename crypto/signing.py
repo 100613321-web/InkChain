@@ -6,13 +6,13 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from crypto import aead
 
 CURVE = ec.SECP256R1()  # P-256, 256-bit key
-# AAD for the encrypted private key: stops a stored entry from being passed
-# off as a private key (and the other way round).
+# AAD for the encrypted private key. Without it, some other blob encrypted
+# with the same key (the DEK, for example) could be passed off as a private key.
 PRIVKEY_AAD = b"inkchain-private-key-v1"
 
 
 class SigningError(Exception):
-    """Raised when a key cannot be loaded or has a wrong format."""
+    """A key could not be loaded or has the wrong format."""
 
 
 def generate_keypair():
@@ -28,7 +28,7 @@ def encrypt_private_key(private_key, enc_key: bytes) -> bytes:
     raw = private_key.private_bytes(
         encoding=serialization.Encoding.DER,
         format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),  # we encrypt it ourselves
+        encryption_algorithm=serialization.NoEncryption(),  # no extra layer, AES-GCM below does it
     )
     return aead.encrypt(enc_key, raw, aad=PRIVKEY_AAD)
 
@@ -48,6 +48,7 @@ def decrypt_private_key(blob: bytes, enc_key: bytes):
 # ---------- public key: stored in the clear ----------
 
 def public_key_to_bytes(public_key) -> bytes:
+    """DER bytes of the public key (it is public, so no encryption)."""
     return public_key.public_bytes(
         encoding=serialization.Encoding.DER,
         format=serialization.PublicFormat.SubjectPublicKeyInfo,
@@ -55,6 +56,7 @@ def public_key_to_bytes(public_key) -> bytes:
 
 
 def load_public_key(data: bytes):
+    """Load a public key, must be an EC key or we refuse it."""
     try:
         key = serialization.load_der_public_key(data)
     except ValueError:
@@ -67,6 +69,7 @@ def load_public_key(data: bytes):
 # ---------- sign / verify ----------
 
 def sign(private_key, data: bytes) -> bytes:
+    """ECDSA over SHA-256. The nonce k is random for each signature (done by the library)."""
     if not isinstance(data, bytes):
         raise ValueError("data must be bytes")
     return private_key.sign(data, ec.ECDSA(hashes.SHA256()))
