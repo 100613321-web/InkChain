@@ -2,7 +2,7 @@
 import hashlib
 
 GENESIS_HASH = b"\x00" * 32  # prev_hash of the first entry (nothing before it)
-
+HEAD_PREFIX = b"inkchain-head-v1" # domain seperation for the signed diary head
 
 def _int_bytes(value: int) -> bytes:
     # Fixed 8 bytes so every number has one single encoding.
@@ -66,3 +66,24 @@ def verify_chain(entries: list, public_key, verify_signature) -> list:
         expected_prev = e["entry_hash"]
 
     return results
+
+def head_message(count: int, last_hash: bytes) -> bytes:
+    """Bytes that are signed for diary head, which consists of entry count + last entry hash"""
+    return HEAD_PREFIX + _int_bytes(count) + _int_bytes(len(last_hash)) + last_hash
+
+def verify_head(entries: list, head, public_key, verify_signature) -> tuple:
+    """Checks the signed head against the entries and returns a tuple (ok, reason)"""
+    if head is None:
+        return False, "diary head missing or malformed"
+
+    count, last_hash = head["count"], head["last_hash"]
+
+    if not verify_signature(public_key, head["signature"], head_message(count, last_hash)):
+        return False, "diary head signature invalid"
+    if count > len(entries):
+        return False, f"{count - len(entries)} entries missing at diary end"
+
+    expected_last = entries[count - 1]["entry_hash"] if count > 0 else GENESIS_HASH
+    if expected_last != last_hash:
+        return False, "diary head doesn't match the chain"
+    return True, "ok"

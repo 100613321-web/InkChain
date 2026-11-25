@@ -1,6 +1,14 @@
-from services.auth import register_user, login_user, AuthError
-from services.diary import create_entry, get_entries, verify_diary, DiaryError
+"""Command line interface that talks only to the services layer."""
+from datetime import datetime
+from services.auth import register_user, login_user, AuthError, MIN_PASSWORD_LEN
+from services.diary import create_entry, get_entries, verify_diary, DiaryError, get_entry_list, get_entry
 from getpass import getpass
+
+def format_timestamp(timestamp: int) -> str:
+    try:
+        return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M")
+    except(OverflowError, OSError, ValueError):
+        return str(timestamp)
 
 def show_main_menu():
     print("\n" + "=" * 35)
@@ -32,6 +40,7 @@ def register():
     print("\n--- Register ---")
 
     username = input("Enter username: ").strip()
+    print(f"Password: at least {MIN_PASSWORD_LEN} characters, mixing 3 of: lowercase, uppercase, digits, symbols.")
     password = getpass("Enter password: ") #using getpass to hide password when typing it in
     confirm_password = getpass("Confirm password: ")
 
@@ -61,35 +70,65 @@ def login():
         print(f"Login failed: {error}")
         return None
 
+def read_multiline(prompt):
+    print(f"{prompt} (finish with an empty line):")
+    lines = []
+    while True:
+        line = input()
+        if not line:
+            break
+        lines.append(line)
+    return "\n".join(lines)
+
 def write_entry(session):
     print("\n--- New Diary Entry ---")
-    plaintext = input("Write your diary entry: ")
+    title = input("Title: ")
+    plaintext = read_multiline("Write your diary entry: ")
 
     try: 
-        create_entry(session, plaintext)
+        create_entry(session, plaintext, title=title)
         print("Your diary entry has been saved securely!")
 
     except DiaryError as error:
         print(f"Could not save entry: {error}")
 
+def show_entry(session, index):
+    entry = get_entry(session, index)
+    print("\n" + "-" * 35)
+    print(f"Entry #{entry['index'] + 1}: {entry['title'] or '(untitled)'}")
+    print(f"Date: {format_timestamp(entry['timestamp'])}")
+    print()
+    print(entry["text"])
+    print("-" * 35)
+
+
 def view_entries(session):
     print("\n--- Your Diary Entries ---")
 
     try:
-        entries = get_entries(session)
+        entries = get_entry_list(session)
 
         if not entries: 
             print("Your diary is empty.")
             return
 
         for entry in entries:
-            timestamp = entry["timestamp"]
+            print(f"{entry['index'] + 1:>3}. {format_timestamp(entry['timestamp'])}  {entry['title'] or '(untitled)'}")
 
-            print("\n" + "-" * 35)
-            print(f"Entry #{entry['index'] + 1}")
-            print(f"Date: {timestamp}")
-            print(entry["text"])
-            print("-" * 35)
+        while True:
+            choice = input("\nEntry number to open (Enter to go back): ").strip()
+
+            if not choice:
+                return
+
+            if not choice.isdigit():
+                print("Please enter a number.")
+                continue
+
+            try:
+                show_entry(session, int(choice) - 1)
+            except DiaryError as error:
+                print(error)
 
     except DiaryError as error:
         print(f"Could not retrieve diary entries: {error}")
@@ -106,10 +145,11 @@ def check_integrity(session):
         all_valid = True
 
         for index, valid, reason in results:
+            label = "Diary" if index is None else f"Entry {index + 1}"
             if valid:
-                print(f"Entry {index + 1}: VALID")
+                print(f"{label}: VALID")
             else:
-                print(f"Entry {index + 1}: INVALID - {reason}")
+                print(f"{label}: INVALID - {reason}")
                 all_valid = False
 
         if all_valid:
@@ -121,45 +161,52 @@ def check_integrity(session):
         print(f"Verification failed: {error}")
 
 def diary_menu(session):
-    while True:
-        show_diary_menu(session.username)
-        choice = get_choice()
+    try:
+        while True:
+            show_diary_menu(session.username)
+            choice = get_choice()
 
-        if choice == "1":
-            write_entry(session)
+            if choice == "1":
+                write_entry(session)
 
-        elif choice == "2":
-            view_entries(session)
+            elif choice == "2":
+                view_entries(session)
 
-        elif choice == "3":
-            check_integrity(session)
+            elif choice == "3":
+                check_integrity(session)
 
-        elif choice == "4":
-            print("Logging out...")
-            break
+            elif choice == "4":
+                print("Logging out...")
+                break
 
-        else:
-            print("Invalid option. Please try again.")
+            else:
+                print("Invalid option. Please try again.")
+    finally: 
+        session.close()
 
 def main_menu():
-    while True:
-        show_main_menu()
-        choice = get_choice()
+    try:
+        while True:
+            show_main_menu()
+            choice = get_choice()
 
-        if choice == "1":
-            register()
+            if choice == "1":
+                register()
 
-        elif choice == "2":
-            session = login()
-            if session is not None:
-                diary_menu(session)
+            elif choice == "2":
+                session = login()
+                if session is not None:
+                    diary_menu(session)
 
-        elif choice == "3":
-            print("Goodbye!")
-            break
+            elif choice == "3":
+                print("Goodbye!")
+                break
 
-        else:
-            print("Invalid option. Please try again.")
+            else:
+                print("Invalid option. Please try again.")
+
+    except(KeyboardInterrupt, EOFError):
+        print("\nGoodbye!")
 
 if __name__ == "__main__":
     main_menu()
