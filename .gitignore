@@ -6,3 +6,4 @@ instance/*.db
 .idea/
 .pytest_cache/
 data/
+.DS_Store

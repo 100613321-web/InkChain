@@ -1,2 +1,2 @@
-Flask
-cryptography
+cryptography==50.0.2
+pytest==9.2.0

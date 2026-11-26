@@ -1,16 +1,18 @@
-"""Command line interface that talks only to the services layer."""
+"""Command line interface. It only talks to the services layer, never to crypto or files directly."""
 from datetime import datetime
 from services.auth import register_user, login_user, AuthError, MIN_PASSWORD_LEN
-from services.diary import create_entry, get_entries, verify_diary, DiaryError, get_entry_list, get_entry
+from services.diary import create_entry, verify_diary, DiaryError, get_entry_list, get_entry
 from getpass import getpass
 
 def format_timestamp(timestamp: int) -> str:
+    """Unix time -> 2026-11-26 14:30. If the number is nonsense, just show it as it is."""
     try:
         return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M")
     except(OverflowError, OSError, ValueError):
         return str(timestamp)
 
 def show_main_menu():
+    # start screen
     print("\n" + "=" * 35)
     print("          INKCHAIN")
     print("      Your Secure Diary")
@@ -22,6 +24,7 @@ def show_main_menu():
 
 
 def show_diary_menu(username):
+    # menu after login
     print("\n" + "=" * 35)
     print(f"       Welcome, {username}!")
     print("=" * 35)
@@ -33,10 +36,12 @@ def show_diary_menu(username):
 
 
 def get_choice():
+    # one place for the "Choose an option" prompt
     return input("Choose an option: ").strip()
 
 
 def register():
+    """Ask for username and password twice, then create the account."""
     print("\n--- Register ---")
 
     username = input("Enter username: ").strip()
@@ -56,6 +61,7 @@ def register():
         print(f"Registration failed: {error}")
 
 def login():
+    """Ask for credentials. Returns the session, or None if the login failed."""
     print("\n--- Login ---")
 
     username = input("Enter username: ").strip()
@@ -71,6 +77,7 @@ def login():
         return None
 
 def read_multiline(prompt):
+    """input() reads one line only, so keep reading until the user sends an empty line."""
     print(f"{prompt} (finish with an empty line):")
     lines = []
     while True:
@@ -81,6 +88,7 @@ def read_multiline(prompt):
     return "\n".join(lines)
 
 def write_entry(session):
+    """Ask for a title and a text, then save the entry (encrypted by the service)."""
     print("\n--- New Diary Entry ---")
     title = input("Title: ")
     plaintext = read_multiline("Write your diary entry: ")
@@ -93,6 +101,7 @@ def write_entry(session):
         print(f"Could not save entry: {error}")
 
 def show_entry(session, index):
+    """Print one decrypted entry. (get_entry verifies the whole diary first.)"""
     entry = get_entry(session, index)
     print("\n" + "-" * 35)
     print(f"Entry #{entry['index'] + 1}: {entry['title'] or '(untitled)'}")
@@ -103,6 +112,7 @@ def show_entry(session, index):
 
 
 def view_entries(session):
+    """Show the list of entries, then let the user open one by its number."""
     print("\n--- Your Diary Entries ---")
 
     try:
@@ -134,6 +144,7 @@ def view_entries(session):
         print(f"Could not retrieve diary entries: {error}")
 
 def check_integrity(session):
+    """Print one line per entry: VALID, or INVALID with the reason. Row "Diary" = the signed head."""
     print("\n--- Diary Integrity Check ---")
 
     try:
@@ -161,6 +172,7 @@ def check_integrity(session):
         print(f"Verification failed: {error}")
 
 def diary_menu(session):
+    """Menu loop for a logged-in user. The finally makes sure the keys are dropped on ANY exit."""
     try:
         while True:
             show_diary_menu(session.username)
@@ -185,6 +197,7 @@ def diary_menu(session):
         session.close()
 
 def main_menu():
+    """Start screen loop. Ctrl+C or Ctrl+D ends the program politely instead of showing a traceback."""
     try:
         while True:
             show_main_menu()
