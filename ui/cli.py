@@ -91,7 +91,7 @@ def write_entry(session):
     """Ask for a title and a text, then save the entry (encrypted by the service)."""
     print("\n--- New Diary Entry ---")
     title = input("Title: ")
-    plaintext = read_multiline("Write your diary entry: ")
+    plaintext = read_multiline("Write your diary entry")
 
     try: 
         create_entry(session, plaintext, title=title)
@@ -131,7 +131,7 @@ def view_entries(session):
             if not choice:
                 return
 
-            if not choice.isdigit():
+            if not choice.isdecimal():
                 print("Please enter a number.")
                 continue
 

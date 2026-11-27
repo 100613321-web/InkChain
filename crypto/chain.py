@@ -6,8 +6,8 @@ HEAD_PREFIX = b"inkchain-head-v1" # domain seperation for the signed diary head
 
 def _int_bytes(value: int) -> bytes:
     # Fixed 8 bytes so every number has one single encoding.
-    if type(value) is not int or value < 0:
-        raise ValueError("expected a non-negative integer")
+    if type(value) is not int or not 0 <= value < 2**64:
+        raise ValueError("expected an integer between 0 and 2**64 - 1")
     return value.to_bytes(8, "big")
 
 
